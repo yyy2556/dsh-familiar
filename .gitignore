@@ -1,6 +1,8 @@
 node_modules/
 *.tgz
 *.log
+*.bak
+*.bak-*
 
 # 记忆数据是运行时产物，不属于源码
 memory/
