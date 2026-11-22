@@ -1,0 +1,58 @@
+{
+  "name": "dsh-familiar-memory",
+  "version": "0.4.0",
+  "description": "Cross-session long-term memory for DeepSeek Harness: a capped always-on profile plus silent, on-demand recall over your real conversation history.",
+  "type": "module",
+  "main": "index.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yyy2556/dsh-familiar.git"
+  },
+  "homepage": "https://github.com/yyy2556/dsh-familiar#readme",
+  "bugs": {
+    "url": "https://github.com/yyy2556/dsh-familiar/issues"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md",
+    "README.zh-CN.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node test/consolidate.test.mjs && node test/profile.test.mjs && node test/recall.test.mjs"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "memory",
+    "agent-memory",
+    "long-term-memory",
+    "cordis-plugin"
+  ],
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "slots"
+      ]
+    }
+  }
+}

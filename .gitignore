@@ -1,0 +1,18 @@
+node_modules/
+*.tgz
+*.log
+
+# 记忆数据是运行时产物，不属于源码
+memory/
+facts.jsonl
+facts.jsonl.bak-*
+sessions.json
+extract.json
+maintenance.md
+profile.md
+debug.log
+
+# 编辑器
+.vscode/
+.idea/
+.DS_Store
