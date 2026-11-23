@@ -1,5 +1,5 @@
 window.__ModuleLoader__.load({
-  id: 'dsh-remember',
+  id: 'dsh-familiar-memory',
   factory(require) {
     const React = require('react')
     const h = React.createElement
