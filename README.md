@@ -1,6 +1,6 @@
 # dsh-familiar
 
-**English** | [简体中文](README.md)
+**English** | [简体中文](README.zh-CN.md)
 
 A cross-session long-term memory plugin for DeepSeek Harness.
 
@@ -35,7 +35,7 @@ Restart DSH.
 
 Install it and forget about it. Extraction runs at the end of each turn, quietly collecting what is worth remembering. Recall happens automatically in later sessions.
 
-The sidebar has a **Memory** entry showing the profile, facts with dates, and session cards (read-only).
+The sidebar has a **Memory** entry showing the profile, facts with their dates and how each was written, and session cards (read-only).
 
 To manage memory explicitly:
 
@@ -204,8 +204,6 @@ The report changes nothing.
 2. **Capacity is checked on the batch result.** Going over the cap returns how many characters short you are plus the current entries, and expects one call that removes old entries and adds the new one together. Otherwise the model loops between "add rejected" and "how much do I delete".
 
 ## Appendix: Full configuration
-
-<a id="appendix-full-configuration"></a>
 
 | Key | Default | Meaning |
 |---|---|---|
