@@ -1636,7 +1636,7 @@ function parseConsolidation(output, candidates, pool) {
  * 约定：`createdAt` 永远是首次记录时间，改写只更新 `updatedAt` 并把旧值压进 `history`。
  * `proofCount` 记录被反复确认的次数（hindsight 的 proof_count），重复不产生新记录。
  */
-function applyConsolidation(facts, candidates, decisions, sessionId) {
+function applyConsolidation(facts, candidates, decisions, sessionId, skipIndices = new Set()) {
   const byId = new Map(facts.map((fact) => [fact.id, fact]))
   const now = Date.now()
   const stats = { added: 0, changed: 0, ended: 0, reinforced: 0 }
@@ -1648,6 +1648,7 @@ function applyConsolidation(facts, candidates, decisions, sessionId) {
   }
 
   candidates.forEach((raw, index) => {
+    if (skipIndices.has(index)) return
     const candidate = typeof raw === 'string'
       ? { text: raw, kind: 'fact', source: 'inferred' }
       : { kind: 'fact', source: 'inferred', ...raw }
@@ -1657,7 +1658,9 @@ function applyConsolidation(facts, candidates, decisions, sessionId) {
     if (decision === undefined) {
       if (body === '') return
       // 模型没有给出判定时才启用本地精确/近似去重兜底。
-      const twin = [...byId.values()].find((fact) => !isDormant(fact) && oneLine(fact.text ?? '') === body)
+      const twin = [...byId.values()].find((fact) => !isDormant(fact)
+        && fact.kind === candidate.kind
+        && oneLine(fact.text ?? '') === body)
         ?? findNearDuplicate(body, byId.values(), FACT_KINDS.has(candidate.kind) ? candidate.kind : 'fact')
       if (twin !== undefined) {
         reinforce(twin)
@@ -1681,7 +1684,9 @@ function applyConsolidation(facts, candidates, decisions, sessionId) {
 
     if (decision.effect === 'unrelated') {
       if (body === '') return
-      const exact = [...byId.values()].find((fact) => !isDormant(fact) && oneLine(fact.text ?? '') === body)
+      const exact = [...byId.values()].find((fact) => !isDormant(fact)
+        && fact.kind === candidate.kind
+        && oneLine(fact.text ?? '') === body)
       if (exact !== undefined) {
         reinforce(exact)
         return
@@ -1743,7 +1748,8 @@ async function consolidateFacts(ctx, config, store, state, log, candidates, sess
   log('consolidate-plan', { candidates: candidates.length, pool: pool.length })
 
   if (pool.length === 0) {
-    const applied = applyConsolidation(existing, candidates, new Map(), sessionId)
+    const latest = store.readFacts()
+    const applied = applyConsolidation(latest, candidates, new Map(), sessionId)
     const persisted = store.rewriteFacts(applied.facts)
     return persisted ? applied.stats : null
   }
@@ -1779,9 +1785,27 @@ async function consolidateFacts(ctx, config, store, state, log, candidates, sess
     return null
   }
 
-  const applied = applyConsolidation(existing, candidates, decisions, sessionId)
+  const latest = store.readFacts()
+  const latestById = new Map(latest.map((fact) => [fact.id, fact]))
+  const stale = new Set()
+  for (const [index, decision] of decisions) {
+    if (decision.target === undefined) continue
+    const current = latestById.get(decision.target.id)
+    const changed = current === undefined
+      || oneLine(current.text ?? '') !== oneLine(decision.target.text ?? '')
+      || Number(current.updatedAt ?? 0) !== Number(decision.target.updatedAt ?? 0)
+      || isDormant(current) !== isDormant(decision.target)
+    if (changed) {
+      decisions.delete(index)
+      stale.add(index)
+    } else {
+      decision.target = current
+    }
+  }
+
+  const applied = applyConsolidation(latest, candidates, decisions, sessionId, stale)
   if (!store.rewriteFacts(applied.facts)) return null
-  log('consolidate-applied', { ...applied.stats, decided: decisions.size })
+  log('consolidate-applied', { ...applied.stats, decided: decisions.size, stale: stale.size })
   return applied.stats
 }
 

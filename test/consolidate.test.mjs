@@ -296,6 +296,16 @@ test('applyConsolidation：未判定时高度近似文本只加强证据', () =>
   assert.equal(facts[0].proofCount, 2)
 })
 
+test('applyConsolidation：过期候选被跳过，不覆盖并发手动修改', () => {
+  const existing = [fact('a', '新版本事实已经由用户手动写入', 200)]
+  const decisions = new Map([[0, { effect: 'changes', target: fact('a', '旧版本事实', 100), text: '模型根据旧快照生成的内容', reason: '' }]])
+  const { stats, facts } = applyConsolidation(existing, ['旧版本事实'], decisions, undefined, new Set([0]))
+  assert.equal(facts.length, 1)
+  assert.equal(facts[0].text, '新版本事实已经由用户手动写入')
+  assert.equal(stats.changed, 0)
+  assert.equal(stats.added, 0)
+})
+
 test('applyConsolidation：无关的事实照常新增', () => {
   const existing = [fact('a', '用户使用中文交流', 100)]
   const { stats, facts } = applyConsolidation(existing, ['用户的 GitHub 用户名是 yyy2556'], new Map())
