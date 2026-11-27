@@ -13,4 +13,4 @@
         injectCorrectionSlots: 2
         maintainThreshold: 120
         autoConsolidate: true
-        debug: true
+        debug: false

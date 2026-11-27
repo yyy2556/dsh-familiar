@@ -264,7 +264,39 @@ test('applyConsolidation 降级路径：近似重复只加强证据，不新增'
   assert.equal(facts[0].proofCount, 2)
 })
 
-test('applyConsolidation 降级路径：无关的事实照常新增', () => {
+test('findNearDuplicate：短事实不能吞掉包含新细节的长事实', () => {
+  const existing = [fact('a', '用户是23级暖通专业学生', 100)]
+  assert.equal(findNearDuplicate('用户是23级暖通专业学生，正在做供热课程设计', existing), undefined)
+})
+
+test('findNearDuplicate：版本号和其它数值变化不算重复', () => {
+  const existing = [fact('a', '插件版本是0.4.0', 100)]
+  assert.equal(findNearDuplicate('插件版本是0.4.1', existing), undefined)
+  assert.equal(findNearDuplicate('用户现在用Windows 10', [fact('b', '用户现在用Windows 11', 100)]), undefined)
+})
+
+test('findNearDuplicate：只匹配同类别事实', () => {
+  const existing = [fact('a', '用户偏好先定要求再写代码', 100, { kind: 'preference' })]
+  assert.equal(findNearDuplicate('用户偏好先定要求再写代码', existing, 'correction'), undefined)
+})
+
+test('applyConsolidation：模型明确判 unrelated 时新增而不是被启发式吞掉', () => {
+  const existing = [fact('a', '用户是23级暖通专业学生', 100)]
+  const decisions = new Map([[0, { effect: 'unrelated', target: undefined, text: '用户是23级暖通专业学生，正在做供热课程设计', reason: '' }]])
+  const { stats, facts } = applyConsolidation(existing, ['用户是23级暖通专业学生，正在做供热课程设计'], decisions)
+  assert.equal(facts.length, 2)
+  assert.equal(stats.added, 1)
+})
+
+test('applyConsolidation：未判定时高度近似文本只加强证据', () => {
+  const existing = [fact('a', 'DSH 客户端模块 client.js 中注册的 id 必须等于 package name，改包名时必须同步改 client id', 100, { proofCount: 1 })]
+  const { stats, facts } = applyConsolidation(existing, ['DSH 客户端模块 client.js 中注册的 id 必须等于 package name，改包名时要同步改 client id'], new Map())
+  assert.equal(facts.length, 1)
+  assert.equal(stats.reinforced, 1)
+  assert.equal(facts[0].proofCount, 2)
+})
+
+test('applyConsolidation：无关的事实照常新增', () => {
   const existing = [fact('a', '用户使用中文交流', 100)]
   const { stats, facts } = applyConsolidation(existing, ['用户的 GitHub 用户名是 yyy2556'], new Map())
   assert.equal(facts.length, 2)

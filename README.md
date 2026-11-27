@@ -158,7 +158,7 @@ Date comparison happens in code: new facts are later by definition, so the model
 
 The extractor sees the most recent existing facts (up to `extractKnownMaxChars`) alongside the transcript, so it can tell "already recorded" from "new", and it is told to leave out task progress and anything that only matters within the current conversation.
 
-No candidates, no model call. If the model is unavailable or its output cannot be parsed, the pass degrades to local dedup: exact match, then 4-gram overlap of 0.5 or more counts as the same fact and only raises `proofCount`. A candidate is never dropped.
+No candidates, no model call. If the model is unavailable or leaves a candidate undecided, local dedup checks exact matches and then conservative 4-gram overlap (at least `0.75`, with text lengths within 15%). It only applies to the same category; an explicit `unrelated` decision is respected. This favors keeping extra detail over discarding a distinct fact.
 
 ## Appendix: Fact metadata
 
