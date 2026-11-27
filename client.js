@@ -107,7 +107,8 @@ window.__ModuleLoader__.load({
                     },
                     h('span', { style: { ...muted, fontFamily: MONO, flex: '0 0 78px' } }, formatDate(f.createdAt)),
                     h('span', { style: { fontSize: 13, lineHeight: 1.6 } }, f.text),
-                    h('span', { style: { ...muted, marginLeft: 'auto', flex: '0 0 auto' } }, f.source === 'auto-extract' ? '自动' : '手动'),
+                    h('span', { style: { ...muted, marginLeft: 'auto', flex: '0 0 auto', whiteSpace: 'nowrap' } },
+                      (f.origin === 'memory_remember' ? '手动' : '自动') + ' · ' + (f.source === 'inferred' ? '模型归纳' : '用户说的')),
                   ))),
               ),
 

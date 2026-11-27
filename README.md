@@ -156,7 +156,9 @@ Two rules constrain the merge:
 
 Date comparison happens in code: new facts are later by definition, so the model never does "how many days ago" arithmetic.
 
-No candidates, no model call. If the model is unavailable or its output cannot be parsed, the pass degrades to exact-string dedup — a candidate is never dropped.
+The extractor sees the most recent existing facts (up to `extractKnownMaxChars`) alongside the transcript, so it can tell "already recorded" from "new", and it is told to leave out task progress and anything that only matters within the current conversation.
+
+No candidates, no model call. If the model is unavailable or its output cannot be parsed, the pass degrades to local dedup: exact match, then 4-gram overlap of 0.5 or more counts as the same fact and only raises `proofCount`. A candidate is never dropped.
 
 ## Appendix: Fact metadata
 
@@ -220,6 +222,7 @@ The report changes nothing.
 | `autoExtract` | `true` | extract at end of turn |
 | `extractProvider` / `extractModel` | host default | model used for extraction and merging |
 | `extractMaxChars` / `extractMaxFacts` | `6000` / `3` | extraction input/output caps |
+| `extractKnownMaxChars` | `3000` | how many existing facts the extractor is shown, in characters |
 | `indexLimit` / `indexTtlMs` | `400` / `300000` | session index size and refresh interval |
 | `maxEvidenceSessions` / `maxSnippetsPerSession` / `snippetChars` | `2` / `3` / `200` | recall evidence shape |
 | `memoryDir` | `$DSH_PROFILE_DIR/memory` | data directory |

@@ -155,7 +155,9 @@ MIT
 
 日期比较在代码里做：新事实按定义更晚，模型不算「距今多少天」。
 
-没有候选时不发模型调用。模型不可用或输出解析不了时，降级成精确字符串去重，不会丢候选。
+抽取时会把最近已有的几条事实（上限 `extractKnownMaxChars`）一并给模型看，让它分得清「已经记过」和「新的」；提示词里明确排除了任务进度和只在本次对话里有意义的内容。
+
+没有候选时不发模型调用。模型不可用或输出解析不了时，降级成本地去重：先精确匹配，再按 4-gram 重叠率 ≥ 0.5 认定同一条，只加 `proofCount`。不会丢候选。
 
 ## 附录：事实元数据
 
@@ -219,6 +221,7 @@ MIT
 | `autoExtract` | `true` | 回合结束抽取 |
 | `extractProvider` / `extractModel` | 宿主默认 | 抽取与合并用的模型 |
 | `extractMaxChars` / `extractMaxFacts` | `6000` / `3` | 抽取输入输出上限 |
+| `extractKnownMaxChars` | `3000` | 抽取时给模型看的已有事实字符上限 |
 | `indexLimit` / `indexTtlMs` | `400` / `300000` | 会话索引规模与刷新间隔 |
 | `maxEvidenceSessions` / `maxSnippetsPerSession` / `snippetChars` | `2` / `3` / `200` | 召回证据形态 |
 | `memoryDir` | `$DSH_PROFILE_DIR/memory` | 数据目录 |

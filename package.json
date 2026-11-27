@@ -1,6 +1,6 @@
 {
   "name": "dsh-familiar-memory",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Cross-session long-term memory for DeepSeek Harness: a capped always-on profile plus silent, on-demand recall over your real conversation history.",
   "type": "module",
   "main": "index.js",

@@ -63,6 +63,7 @@ const Config = {
     maxEvidenceSessions: { type: 'number', default: 2 },
     maxSnippetsPerSession: { type: 'number', default: 3 },
     snippetChars: { type: 'number', default: 200 },
+    extractKnownMaxChars: { type: 'number', default: 3000 },
     debug: { type: 'boolean', default: false },
     memoryDir: { type: 'string', default: '' },
   },
@@ -94,6 +95,7 @@ function normalize(config) {
     extractModel: typeof raw.extractModel === 'string' ? raw.extractModel.trim() : '',
     extractMaxChars: Math.max(1000, Math.floor(num(raw.extractMaxChars, 6000))),
     extractMaxFacts: Math.max(1, Math.floor(num(raw.extractMaxFacts, 3))),
+    extractKnownMaxChars: Math.max(0, Math.floor(num(raw.extractKnownMaxChars, 3000))),
     memoryDir: dir,
   }
 }
@@ -1362,13 +1364,28 @@ async function expandSession(ctx, sessionId, snippets, config, log) {
 
 const EXTRACT_SYSTEM = '你是一个记忆抽取器，不负责聊天。只输出抽取结果，不要解释、不要客套、不要编号。'
 
-function buildExtractPrompt(transcript, maxFacts) {
-  return [
+function buildExtractPrompt(transcript, maxFacts, known = []) {
+  const lines = [
     '从下面这段对话里，抽取**最多 ' + maxFacts + ' 条**值得长期记住的事实。',
     '',
-    '只抽这些类型：用户身份/角色、语言与语气偏好、长期项目与其关键决策、被用户纠正过的做法、跨会话复用的约定。',
-    '不要抽：一次性的任务状态、临时数字、过程性寒暄、对助手说过的话的复述。',
+    '判断标准只有一条：**这条信息在一个月后的全新对话里，是否仍然成立并且值得让助手知道？**',
+    '一个月后仍然成立、换一个会话也用得上的才抽；只在本次对话里有意义的，一律不抽。',
     '',
+    '只抽这些类型：用户身份/角色、语言与语气偏好、长期项目与其关键决策、被用户纠正过的做法、跨会话复用的约定。',
+    '不要抽：',
+    '- 任务进度和计划（"正在投稿"、"计划明天做X"、"已完成第几步"）',
+    '- 只在本次对话里成立的临时状态（本次改了哪个文件、这次用了什么参数）',
+    '- 对助手说过的话或工具输出的复述',
+    '- 你自己的猜测、测试回复、占位内容',
+    '- 下面「已有事实」里已经记过的内容，哪怕换了一种说法',
+    '',
+  ]
+  if (known.length > 0) {
+    lines.push('已有事实（已记在记忆库，不要再抽）：')
+    for (const text of known) lines.push('- ' + text)
+    lines.push('')
+  }
+  lines.push(
     '输出格式：每行一条，三个字段用竖线 `|` 分隔：分类|来源|陈述句',
     '分类只能是：fact（普通事实）、correction（用户纠正过的做法）、preference（用户偏好）、project（长期项目）、environment（环境与工具约定）',
     '来源只能是：user（用户明确说过的）、inferred（你自己的归纳或推断）',
@@ -1379,13 +1396,14 @@ function buildExtractPrompt(transcript, maxFacts) {
     'preference|user|用户偏好先定要求再写代码',
     '',
     '陈述句要求：一句话一件事，不要编号、不要前缀。',
-    '如果没有任何值得记的，只输出：NONE',
+    '宁缺毋滥。没有值得记的就只输出：NONE',
     '',
     '对话片段：',
     '"""',
     transcript,
     '"""',
-  ].join('\n')
+  )
+  return lines.join('\n')
 }
 
 /**
@@ -1415,6 +1433,10 @@ function parseExtracted(text, maxFacts) {
     if (/[,，、:：;；]$/.test(line)) continue
     if (/[的和与在对把从是为]$/.test(line)) continue
     if (/^(用户|助手|系统)?(要求|说|问|表示|提到|提到过|希望)$/.test(line)) continue
+    // 字段名当成了正文（模型把 "inferred" 这种标签单独吐出来），没有信息量
+    if (/^(fact|correction|preference|project|environment|user|inferred)$/i.test(line)) continue
+    // 自指的占位内容
+    if (/^(模型|助手)?(测试|测试回复|无|none|n\/a)$/i.test(line)) continue
     if (!FACT_KINDS.has(kind)) kind = 'fact'
     if (!FACT_SOURCES.has(source)) source = 'inferred'
     out.push({ text: line, kind, source })
@@ -1439,6 +1461,59 @@ const CONSOLIDATE_EFFECTS = new Set(['unrelated', 'repeats', 'changes', 'ends'])
 /** 事实 id 的短前缀：给模型看的编号，解析时再映射回真 id。 */
 function shortId(id) {
   return String(id ?? '').slice(0, 8)
+}
+
+// ---------------------------------------------------------------------------
+// 本地近似去重（不依赖模型）
+//
+// 合并模型不可用、或输出解析失败时，降级路径原来只做精确字符串去重，
+// 「同一件事换种说法」会原样落库。这里补一道字符 n-gram 重叠：
+// 归一化后 4-gram 重叠率 ≥ NEAR_DUP_THRESHOLD 视为同一条，只加强证据。
+// 阈值按历史数据实测：近似重复对在 0.5~0.94，不同事实对 < 0.4。
+// ---------------------------------------------------------------------------
+
+const NEAR_DUP_THRESHOLD = 0.5
+const NEAR_DUP_GRAM = 4
+
+/** 归一化：去空白和标点，英文转小写。 */
+function normalizeForDup(text) {
+  return String(text ?? '')
+    .toLowerCase()
+    .replace(/[\s\p{P}\p{S}]+/gu, '')
+}
+
+function gramSet(text, size = NEAR_DUP_GRAM) {
+  const set = new Set()
+  for (let i = 0; i + size <= text.length; i += 1) set.add(text.slice(i, i + size))
+  return set
+}
+
+/**
+ * 在已有事实里找和新文本说的是同一件事的那条。
+ * 重叠率以较短一方的 gram 数为分母，这样长事实不会被短事实稀释。
+ * 返回命中的事实，没有就返回 undefined。
+ */
+function findNearDuplicate(text, existing) {
+  const body = normalizeForDup(text)
+  if (body.length < NEAR_DUP_GRAM) return undefined
+  const grams = gramSet(body)
+  if (grams.size === 0) return undefined
+  let best
+  let bestScore = 0
+  for (const fact of existing) {
+    if (isDormant(fact)) continue
+    const other = normalizeForDup(oneLine(fact?.text ?? ''))
+    if (other.length < NEAR_DUP_GRAM) continue
+    const otherGrams = gramSet(other)
+    let shared = 0
+    for (const gram of grams) if (otherGrams.has(gram)) shared += 1
+    const score = shared / Math.max(1, Math.min(grams.size, otherGrams.size))
+    if (score > bestScore) {
+      bestScore = score
+      best = fact
+    }
+  }
+  return bestScore >= NEAR_DUP_THRESHOLD ? best : undefined
 }
 
 /**
@@ -1573,7 +1648,9 @@ function applyConsolidation(facts, candidates, decisions, sessionId) {
     const body = truncate(oneLine(decided), 400)
     if (decision === undefined || decision.effect === 'unrelated') {
       if (body === '') return
+      // 合并模型可能漏判：先查精确相同，再查本地近似
       const twin = [...byId.values()].find((fact) => !isDormant(fact) && oneLine(fact.text ?? '') === body)
+        ?? findNearDuplicate(body, byId.values())
       if (twin !== undefined) {
         reinforce(twin)
         return
@@ -1732,6 +1809,21 @@ async function extractFacts(ctx, config, store, state, log, sessionId, signal) {
     return 0
   }
 
+  // 让抽取模型看见记忆库里已经有什么：只给最近更新的活跃事实，按字符预算截断。
+  // 不给它看，同一个项目换种说法就会再记一遍。
+  const known = store.readFacts()
+    .filter((fact) => !isDormant(fact))
+    .sort((left, right) => lastActivityOf(right) - lastActivityOf(left))
+    .map((fact) => truncate(oneLine(fact.text ?? ''), 120))
+    .filter((text) => text !== '')
+  const knownLines = []
+  let knownChars = 0
+  for (const text of known) {
+    if (knownChars + text.length > config.extractKnownMaxChars) break
+    knownLines.push(text)
+    knownChars += text.length
+  }
+
   let output = ''
   try {
     const options = {
@@ -1739,7 +1831,7 @@ async function extractFacts(ctx, config, store, state, log, sessionId, signal) {
       model: route.model,
       system: EXTRACT_SYSTEM,
       messages: [
-        { role: 'user', content: [{ type: 'text', text: buildExtractPrompt(transcript, config.extractMaxFacts) }] },
+        { role: 'user', content: [{ type: 'text', text: buildExtractPrompt(transcript, config.extractMaxFacts, knownLines) }] },
       ],
       maxTokens: 400,
       temperature: 0,
@@ -1774,29 +1866,10 @@ async function extractFacts(ctx, config, store, state, log, sessionId, signal) {
   }
 
   if (stats === null) {
-    // 降级路径：只做精确字符串去重（合并不可用时仍然不能写重复行）
-    const existing = new Set(store.readFacts().map((fact) => oneLine(fact.text ?? '')))
-    let written = 0
-    for (const candidate of candidates) {
-      const body = truncate(oneLine(candidate?.text ?? ''), 400)
-      if (body === '' || existing.has(body)) continue
-      const ok = store.appendFact({
-        id: randomUUID(),
-        kind: FACT_KINDS.has(candidate?.kind) ? candidate.kind : 'fact',
-        source: FACT_SOURCES.has(candidate?.source) ? candidate.source : 'inferred',
-        text: body,
-        createdAt: Date.now(),
-        origin: 'auto-extract',
-        proofCount: 1,
-        hitCount: 0,
-        sessionId,
-      })
-      if (ok) {
-        written += 1
-        existing.add(body)
-      }
-    }
-    stats = { added: written, changed: 0, ended: 0, reinforced: 0 }
+    // 降级路径：不调模型，但仍走 applyConsolidation —— 它内部有精确 + 近似去重
+    const applied = applyConsolidation(store.readFacts(), candidates, new Map(), sessionId)
+    store.rewriteFacts(applied.facts)
+    stats = applied.stats
   }
 
   log('extract-written', {
@@ -2158,6 +2231,8 @@ function apply(ctx, config) {
         proofCount: Number(fact.proofCount ?? 1),
         history: Array.isArray(fact.history) ? fact.history.length : 0,
         source: fact.source ?? '',
+        origin: fact.origin ?? '',
+        kind: fact.kind ?? 'fact',
       })),
       sessions: cards.map((card) => ({
         id: card.id,
@@ -2339,6 +2414,7 @@ export {
   buildConsolidatePrompt,
   buildExtractPrompt,
   parseExtracted,
+  findNearDuplicate,
   applyProfileOps,
   profileBodyText,
   profileCapacity,

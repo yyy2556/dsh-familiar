@@ -11,6 +11,8 @@ import {
   candidatePool,
   parseConsolidation,
   applyConsolidation,
+  findNearDuplicate,
+  parseExtracted,
 } from '../index.js'
 
 let passed = 0
@@ -225,6 +227,54 @@ test('matchFacts 至少命中两个词才算数', () => {
   assert.equal(matchFacts(facts, '代码', 4).length, 0, '只命中一个词不应通过')
   assert.equal(matchFacts(facts, '用户偏好写代码', 4).length, 1)
   assert.equal(matchFacts(facts, '用户偏好写代码', 4)[0].score > 0, true)
+})
+
+// ---------------------------------------------------------------------------
+// 本地近似去重（合并模型不可用时的兜底）
+// ---------------------------------------------------------------------------
+
+test('findNearDuplicate：同一件事换种说法能认出来', () => {
+  const existing = [
+    fact('a', '用户在向 awesome-dsh-plugin 仓库投稿自家的 dsh-familiar 记忆插件（PR #18173）', 100),
+    fact('b', '用户使用中文交流', 200),
+  ]
+  const twin = findNearDuplicate('用户在向 awesome-dsh-plugin 仓库投稿自家的 dsh-familiar 记忆插件，PR #18173', existing)
+  assert.equal(twin?.id, 'a')
+})
+
+test('findNearDuplicate：不同的事不会被误合并', () => {
+  const existing = [
+    fact('a', '用户使用中文交流', 100),
+    fact('b', '用户长期开发植物大战僵尸二创的 Godot 游戏', 200),
+  ]
+  assert.equal(findNearDuplicate('用户的 GitHub 用户名是 yyy2556', existing), undefined)
+  assert.equal(findNearDuplicate('不要用 PowerShell 的 Set-Content 改写源码文件', existing), undefined)
+})
+
+test('findNearDuplicate：已归档/作废的事实不参与比较', () => {
+  const existing = [fact('a', '旧版本地双人模式是废案，不需要制作', 100, { archivedAt: 500 })]
+  assert.equal(findNearDuplicate('旧版本地双人模式是废案，不需要制作', existing), undefined)
+})
+
+test('applyConsolidation 降级路径：近似重复只加强证据，不新增', () => {
+  const existing = [fact('a', 'DSH 客户端模块 client.js 中注册的 id 必须等于 package name，改包名时必须同步改 client id', 100, { proofCount: 1 })]
+  const { stats, facts } = applyConsolidation(existing, ['DSH 客户端模块 client.js 中注册的 id 必须等于 package name，改包名时要同步改 client id'], new Map())
+  assert.equal(facts.length, 1, '近似重复不应新增记录')
+  assert.equal(stats.reinforced, 1)
+  assert.equal(facts[0].proofCount, 2)
+})
+
+test('applyConsolidation 降级路径：无关的事实照常新增', () => {
+  const existing = [fact('a', '用户使用中文交流', 100)]
+  const { stats, facts } = applyConsolidation(existing, ['用户的 GitHub 用户名是 yyy2556'], new Map())
+  assert.equal(facts.length, 2)
+  assert.equal(stats.added, 1)
+})
+
+test('parseExtracted：字段名当正文的输出会被丢弃', () => {
+  assert.equal(parseExtracted('inferred', 3).length, 0)
+  assert.equal(parseExtracted('模型测试回复', 3).length, 0)
+  assert.equal(parseExtracted('fact|user|用户使用中文交流', 3).length, 1)
 })
 
 async function main() {
